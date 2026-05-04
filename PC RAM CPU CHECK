@@ -1,0 +1,72 @@
+실행순서 2 > 1
+
+
+(1) < visualStudioCode > 
+import serial
+import psutil
+import time
+
+# TTGO가 연결된 포트 번호를 확인하세요 (예: 'COM3')
+py_serial = serial.Serial(port='COM5', baudrate=115200)
+
+while True:
+    # CPU 사용량과 RAM 사용량 추출
+    cpu_usage = int(psutil.cpu_percent())
+    ram_usage = int(psutil.virtual_memory().percent)
+    
+    # 데이터를 "CPU,RAM\n" 형식으로 전송
+    data = f"{cpu_usage},{ram_usage}\n"
+    py_serial.write(data.encode())
+    
+    print(f"Sent: {data.strip()}")
+    time.sleep(1) # 1초마다 전송
+
+
+(2)아두이노
+#include <TFT_eSPI.h>
+
+TFT_eSPI tft = TFT_eSPI();
+
+void setup() {
+  Serial.begin(115200); // 파이썬과 속도를 맞춰야 합니다.
+  tft.init();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_CYAN);
+  tft.setTextSize(2);
+  tft.println("PC Monitor Ready...");
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    String data = Serial.readStringUntil('\n');
+    
+    // 데이터 분리 (CPU, RAM)
+    int commaIndex = data.indexOf(',');
+    if (commaIndex > 0) {
+      String cpu = data.substring(0, commaIndex);
+      String ram = data.substring(commaIndex + 1);
+
+      // 화면 업데이트
+      tft.fillScreen(TFT_BLACK);
+      
+      // CPU 섹션
+      tft.setTextColor(TFT_GREEN);
+      tft.setCursor(0, 10);
+      tft.setTextSize(2);
+      tft.print("CPU Usage:");
+      tft.setCursor(0, 40);
+      tft.setTextSize(4);
+      tft.print(cpu + "%");
+
+      // RAM 섹션
+      tft.setTextColor(TFT_YELLOW);
+      tft.setCursor(0, 80);
+      tft.setTextSize(2);
+      tft.print("RAM Usage:");
+      tft.setCursor(0, 110);
+      tft.setTextSize(4);
+      tft.print(ram + "%");
+    }
+  }
+}
