@@ -1,0 +1,100 @@
+#include <TFT_eSPI.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
+
+// 1. Wi-Fi 설정 (본인의 정보로 수정하세요)
+const char* ssid = "IOT";
+const char* password = "12345678";
+
+TFT_eSPI tft = TFT_eSPI();
+
+// 버튼 핀 설정 (TTGO T-Display 기준)
+const int btnLeft = 0;
+const int btnRight = 35;
+
+void setup() {
+  Serial.begin(115200);
+  
+  // 버튼 입력 설정
+  pinMode(btnLeft, INPUT_PULLUP);
+  pinMode(btnRight, INPUT_PULLUP);
+
+  // 화면 초기화
+  tft.init();
+  tft.setRotation(1); // 가로 모드
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+
+  // Wi-Fi 연결
+  tft.println("Connecting to WiFi...");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  tft.fillScreen(TFT_BLACK);
+  tft.println("WiFi Connected!");
+  delay(1000);
+}
+
+void getStockPrice() {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    // CoinGecko API: 비트코인의 현재가를 달러(USD)로 요청
+    String url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd";
+    
+    http.begin(url);
+    int httpCode = http.GET();
+
+    if (httpCode > 0) {
+      String payload = http.getString();
+      
+      // JSON 파싱 (데이터 과학에서 다루는 데이터 구조)
+      StaticJsonDocument<200> doc;
+      deserializeJson(doc, payload);
+      float price = doc["bitcoin"]["usd"];
+
+      // 화면 업데이트
+      tft.fillScreen(TFT_BLACK);
+      tft.setCursor(0, 20);
+      tft.setTextColor(TFT_YELLOW);
+      tft.setTextSize(3);
+      tft.println(" BITCOIN");
+      
+      tft.setCursor(0, 70);
+      tft.setTextColor(TFT_WHITE);
+      tft.setTextSize(4);
+      tft.printf("$%.2f", price);
+      
+      Serial.println(price);
+    }
+    http.end();
+  }
+}
+
+void loop() {
+  // 10초마다 자동으로 가격 갱신
+  static unsigned long lastTime = 0;
+  if (millis() - lastTime > 10000) {
+    getStockPrice();
+    lastTime = millis();
+  }
+
+  // 왼쪽 버튼 누르면 즉시 갱신
+  if (digitalRead(btnLeft) == LOW) {
+    tft.setCursor(0, 110);
+    tft.setTextSize(1);
+    tft.println("Updating...");
+    getStockPrice();
+    delay(500); 
+  }
+
+  // 오른쪽 버튼 누르면 화면 색상 반전 (버튼 작동 확인용)
+  if (digitalRead(btnRight) == LOW) {
+    tft.invertDisplay(true);
+    delay(200);
+    tft.invertDisplay(false);
+  }
+}
