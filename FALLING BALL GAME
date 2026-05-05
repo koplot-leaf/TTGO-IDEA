@@ -1,0 +1,168 @@
+#include <TFT_eSPI.h>
+#include <SPI.h>
+
+TFT_eSPI tft = TFT_eSPI();
+TFT_eSprite spr = TFT_eSprite(&tft);
+
+// 핀 설정
+const int btnLeft = 0;
+const int btnRight = 35;
+
+// 게임 설정
+float playerX = 67.5;
+float playerY = 40;     // 플레이어의 고정 Y축 위치 (화면 상단부)
+int score = 0;
+float gameSpeed = 2.0;
+bool gameOver = false;
+
+// 장애물 구조체
+struct Wall {
+  float y;
+  int gapX;
+  int gapW;
+  bool active;
+};
+const int MAX_WALLS = 4;
+Wall walls[MAX_WALLS];
+
+// 배경 입자 구조체 (속도감 연출)
+struct Particle {
+  float x, y, s;
+};
+const int MAX_PARTICLES = 20;
+Particle particles[MAX_PARTICLES];
+
+void setup() {
+  tft.init();
+  tft.setRotation(0); // 세로 모드 (135 x 240)
+  spr.createSprite(135, 240);
+  
+  pinMode(btnLeft, INPUT_PULLUP);
+  pinMode(btnRight, INPUT_PULLUP);
+
+  resetGame();
+}
+
+void loop() {
+  if (!gameOver) {
+    updateGame();
+    drawGame();
+  } else {
+    drawGameOver();
+    if (digitalRead(btnLeft) == LOW || digitalRead(btnRight) == LOW) {
+      resetGame();
+      delay(300);
+    }
+  }
+}
+
+void resetGame() {
+  playerX = 67.5;
+  score = 0;
+  gameSpeed = 2.5;
+  gameOver = false;
+
+  // 장애물 초기화
+  for (int i = 0; i < MAX_WALLS; i++) {
+    walls[i].y = 240 + (i * 80);
+    walls[i].gapX = random(10, 80);
+    walls[i].gapW = 45;
+    walls[i].active = true;
+  }
+
+  // 입자 초기화
+  for (int i = 0; i < MAX_PARTICLES; i++) {
+    particles[i].x = random(0, 135);
+    particles[i].y = random(0, 240);
+    particles[i].s = random(2, 5);
+  }
+}
+
+void updateGame() {
+  // 1. 플레이어 좌우 이동
+  if (digitalRead(btnLeft) == LOW) playerX -= 3.5;
+  if (digitalRead(btnRight) == LOW) playerX += 3.5;
+  
+  // 벽 충돌 방지 (화면 밖으로 나가지 않게)
+  if (playerX < 5) playerX = 5;
+  if (playerX > 125) playerX = 125;
+
+  // 2. 장애물 이동 및 생성 (아래에서 위로 올라옴 = 추락 느낌)
+  for (int i = 0; i < MAX_WALLS; i++) {
+    walls[i].y -= gameSpeed;
+
+    if (walls[i].y < -10) {
+      walls[i].y = 240;
+      walls[i].gapX = random(5, 90);
+      walls[i].gapW = max(30, 45 - (score / 10)); // 점수가 높을수록 좁아짐
+      score++;
+      gameSpeed += 0.05; // 점점 빨라짐
+    }
+
+    // 3. 충돌 체크 (상하 범위에 들어왔을 때 틈새 체크)
+    if (walls[i].y > playerY - 5 && walls[i].y < playerY + 10) {
+      if (playerX < walls[i].gapX || playerX + 10 > walls[i].gapX + walls[i].gapW) {
+        gameOver = true;
+      }
+    }
+  }
+
+  // 4. 배경 입자 이동 (위로 솟구침)
+  for (int i = 0; i < MAX_PARTICLES; i++) {
+    particles[i].y -= (particles[i].s + gameSpeed);
+    if (particles[i].y < 0) {
+      particles[i].y = 240;
+      particles[i].x = random(0, 135);
+    }
+  }
+}
+
+void drawGame() {
+  spr.fillSprite(TFT_BLACK);
+
+  // 배경 입자 (별무리)
+  for (int i = 0; i < MAX_PARTICLES; i++) {
+    spr.drawPixel(particles[i].x, particles[i].y, TFT_DARKGREY);
+  }
+
+  // 장애물 그리기 (네온 그린)
+  for (int i = 0; i < MAX_WALLS; i++) {
+    // 왼쪽 벽
+    spr.fillRect(0, walls[i].y, walls[i].gapX, 8, TFT_GREEN);
+    // 오른쪽 벽
+    spr.fillRect(walls[i].gapX + walls[i].gapW, walls[i].y, 135, 8, TFT_GREEN);
+    // 네온 효과 (살짝 더 밝은 선)
+    spr.drawFastHLine(0, walls[i].y + 2, 135, TFT_WHITE);
+  }
+
+  // 플레이어 (네온 핑크/화이트 전투기 형태)
+  spr.fillRoundRect(playerX, playerY, 12, 12, 3, TFT_MAGENTA);
+  spr.fillRect(playerX + 3, playerY + 3, 6, 6, TFT_WHITE);
+
+  // 상단 UI
+  spr.setTextColor(TFT_CYAN);
+  spr.setTextSize(2);
+  spr.setCursor(5, 5);
+  spr.print(score);
+
+  spr.pushSprite(0, 0);
+}
+
+void drawGameOver() {
+  spr.fillSprite(TFT_BLACK);
+  spr.setTextColor(TFT_RED);
+  spr.setTextSize(2);
+  spr.setCursor(15, 80);
+  spr.print("CRASHED!");
+  
+  spr.setTextColor(TFT_WHITE);
+  spr.setTextSize(2);
+  spr.setCursor(45, 110);
+  spr.print("SC: "); spr.print(score);
+  
+  spr.setTextSize(1);
+  spr.setCursor(15, 160);
+  spr.print("Press Button to Restart");
+  
+  spr.pushSprite(0, 0);
+}
