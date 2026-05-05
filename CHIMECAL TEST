@@ -1,0 +1,123 @@
+#include <TFT_eSPI.h>
+#include <SPI.h>
+
+TFT_eSPI tft = TFT_eSPI();
+
+const int btnLeft = 0;   // 모름/다시보기
+const int btnRight = 35; // 앎/다음원소
+
+struct Element {
+  int num;
+  const char* symbol;
+  const char* name;
+  uint16_t color; // 주기율표 그룹 색상
+};
+
+// 주요 원소 데이터 (예시로 20번까지 구성, 118번까지 확장 가능)
+const Element elements[] = {
+  {1, "H", "Hydrogen", TFT_WHITE}, {2, "He", "Helium", TFT_PINK},
+  {3, "Li", "Lithium", TFT_RED}, {4, "Be", "Beryllium", TFT_ORANGE},
+  {5, "B", "Boron", TFT_GREEN}, {6, "C", "Carbon", TFT_GREEN},
+  {7, "N", "Nitrogen", TFT_GREEN}, {8, "O", "Oxygen", TFT_GREEN},
+  {9, "F", "Fluorine", TFT_YELLOW}, {10, "Ne", "Neon", TFT_PINK},
+  {11, "Na", "Sodium", TFT_RED}, {12, "Mg", "Magnesium", TFT_ORANGE},
+  {13, "Al", "Aluminum", TFT_LIGHTGREY}, {14, "Si", "Silicon", TFT_GREEN},
+  {15, "P", "Phosphorus", TFT_GREEN}, {16, "S", "Sulfur", TFT_GREEN},
+  {17, "Cl", "Chlorine", TFT_YELLOW}, {18, "Ar", "Argon", TFT_PINK},
+  {19, "K", "Potassium", TFT_RED}, {20, "Ca", "Calcium", TFT_ORANGE}
+};
+
+const int totalElements = sizeof(elements) / sizeof(Element);
+int queue[totalElements];
+int head = 0;
+bool showAnswer = false;
+bool needRedraw = true;
+
+void setup() {
+  tft.init();
+  tft.setRotation(1);
+  pinMode(btnLeft, INPUT_PULLUP);
+  pinMode(btnRight, INPUT_PULLUP);
+  
+  for(int i=0; i<totalElements; i++) queue[i] = i;
+}
+
+void loop() {
+  if (needRedraw) {
+    drawElementCard();
+    needRedraw = false;
+  }
+
+  // 왼쪽 버튼: 정답 확인 후 -> '모름' 처리 (3번 뒤로 밀기)
+  if (digitalRead(btnLeft) == LOW) {
+    delay(200);
+    if (!showAnswer) {
+      showAnswer = true; // 먼저 정답(이름)을 보여줌
+    } else {
+      pushBack(3); // 이미 정답을 본 상태면 뒤로 밀기
+      showAnswer = false;
+    }
+    needRedraw = true;
+    while(digitalRead(btnLeft) == LOW);
+  }
+
+  // 오른쪽 버튼: 다음 원소 (알고 있음)
+  if (digitalRead(btnRight) == LOW) {
+    delay(200);
+    head = (head + 1) % totalElements;
+    showAnswer = false;
+    needRedraw = true;
+    while(digitalRead(btnRight) == LOW);
+  }
+}
+
+void pushBack(int offset) {
+  int current = queue[head];
+  int actualOffset = (totalElements - 1 < offset) ? totalElements - 1 : offset;
+  for (int i = 0; i < actualOffset; i++) {
+    queue[(head + i) % totalElements] = queue[(head + i + 1) % totalElements];
+  }
+  queue[(head + actualOffset) % totalElements] = current;
+}
+
+void drawElementCard() {
+  tft.fillScreen(TFT_BLACK);
+  int idx = queue[head];
+  
+  // 테두리 (원소 그룹 색상 활용)
+  tft.drawRect(5, 5, 230, 125, elements[idx].color);
+  tft.drawRect(6, 6, 228, 123, elements[idx].color);
+
+  // 원자 번호
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(20, 20);
+  tft.print(elements[idx].num);
+
+  // 원소 기호 (중앙에 크게)
+  tft.setTextColor(elements[idx].color);
+  tft.setTextSize(6);
+  tft.setCursor(90, 40);
+  tft.print(elements[idx].symbol);
+
+  // 정답(이름) 표시
+  if (showAnswer) {
+    tft.setTextColor(TFT_WHITE);
+    tft.setTextSize(2);
+    tft.setCursor(70, 100);
+    tft.print(elements[idx].name);
+  } else {
+    tft.setTextColor(TFT_DARKGREY);
+    tft.setTextSize(1);
+    tft.setCursor(80, 110);
+    tft.print("Press Left to Reveal");
+  }
+
+  // 조작 가이드
+  tft.setTextSize(1);
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setCursor(10, 120);
+  tft.print("L: Hint/Again");
+  tft.setCursor(180, 120);
+  tft.print("R: I know");
+}
