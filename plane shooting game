@@ -1,0 +1,262 @@
+#include <TFT_eSPI.h>
+#include <SPI.h>
+
+TFT_eSPI tft = TFT_eSPI();
+TFT_eSprite spr = TFT_eSprite(&tft); // 깜빡임 방지를 위한 스프라이트(더블 버퍼링)
+
+// --- 핀 설정 ---
+const int btnUp = 0;
+const int btnDown = 35;
+
+// --- 게임 변수 ---
+int playerY = 60;
+int playerX = 20;
+int lives = 3;
+int score = 0;
+bool gameOver = false;
+
+// 총알 타이머 및 상태
+unsigned long lastFireTime = 0;
+int fireRate = 300; // 발사 속도 (ms)
+
+struct Bullet {
+  float x, y;
+  float vx, vy;
+  bool active;
+};
+const int MAX_BULLETS = 15;
+Bullet bullets[MAX_BULLETS];
+
+// 적(Enemy) 구조체
+struct Enemy {
+  float x, y;
+  float speed;
+  bool active;
+};
+const int MAX_ENEMIES = 5;
+Enemy enemies[MAX_ENEMIES];
+
+// 배경 별(Stars) 구조체
+struct Star {
+  float x, y;
+  float speed;
+};
+const int MAX_STARS = 40;
+Star stars[MAX_STARS];
+
+void setup() {
+  tft.init();
+  tft.setRotation(1); // 가로 모드 (240 x 135)
+  
+  // 스프라이트 생성 (화면 전체 크기)
+  spr.createSprite(240, 135);
+  
+  pinMode(btnUp, INPUT_PULLUP);
+  pinMode(btnDown, INPUT_PULLUP);
+
+  // 별 초기화
+  for(int i=0; i<MAX_STARS; i++){
+    stars[i].x = random(0, 240);
+    stars[i].y = random(0, 135);
+    stars[i].speed = random(1, 4) * 0.5;
+  }
+}
+
+void loop() {
+  if (!gameOver) {
+    updateGame();
+    drawGame();
+  } else {
+    drawGameOver();
+    if (digitalRead(btnUp) == LOW || digitalRead(btnDown) == LOW) {
+      resetGame();
+      delay(300); // 버튼 디바운스
+    }
+  }
+}
+
+void updateGame() {
+  // 1. 플레이어 이동 (위/아래)
+  if (digitalRead(btnUp) == LOW) playerY -= 3;
+  if (digitalRead(btnDown) == LOW) playerY += 3;
+  
+  if (playerY < 5) playerY = 5;
+  if (playerY > 120) playerY = 120;
+
+  // 2. 총알 자동 발사 & 무기 진화 시스템
+  if (millis() - lastFireTime > fireRate) {
+    int weaponLevel = 1;
+    if (score >= 15) weaponLevel = 2; // 15점 이상 쌍발
+    if (score >= 30) weaponLevel = 3; // 30점 이상 3발 스프레드
+
+    if (weaponLevel == 1) spawnBullet(playerX + 15, playerY + 3, 4, 0);
+    else if (weaponLevel == 2) {
+      spawnBullet(playerX + 15, playerY, 4, 0);
+      spawnBullet(playerX + 15, playerY + 6, 4, 0);
+    } else {
+      spawnBullet(playerX + 15, playerY + 3, 4, 0);
+      spawnBullet(playerX + 15, playerY, 4, -0.5); // 위로 퍼짐
+      spawnBullet(playerX + 15, playerY + 6, 4, 0.5); // 아래로 퍼짐
+    }
+    lastFireTime = millis();
+  }
+
+  // 3. 총알 이동
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    if (bullets[i].active) {
+      bullets[i].x += bullets[i].vx;
+      bullets[i].y += bullets[i].vy;
+      if (bullets[i].x > 240 || bullets[i].y < 0 || bullets[i].y > 135) {
+        bullets[i].active = false;
+      }
+    }
+  }
+
+  // 4. 적 생성 및 이동
+  if (random(0, 100) < 4) { // 적 스폰 확률
+    for (int i = 0; i < MAX_ENEMIES; i++) {
+      if (!enemies[i].active) {
+        enemies[i].x = 240;
+        enemies[i].y = random(10, 125);
+        enemies[i].speed = random(2, 4) + (score * 0.05); // 점수가 오를수록 속도 증가
+        enemies[i].active = true;
+        break;
+      }
+    }
+  }
+
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    if (enemies[i].active) {
+      enemies[i].x -= enemies[i].speed;
+      if (enemies[i].x < -20) {
+        enemies[i].active = false; // 화면 밖으로 나가면 소멸
+      }
+    }
+  }
+
+  // 5. 충돌 체크 (총알 <-> 적)
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    if (!bullets[i].active) continue;
+    for (int j = 0; j < MAX_ENEMIES; j++) {
+      if (!enemies[j].active) continue;
+      
+      // 간단한 거리/박스 충돌 판정
+      if (abs(bullets[i].x - enemies[j].x) < 12 && abs(bullets[i].y - enemies[j].y) < 10) {
+        bullets[i].active = false;
+        enemies[j].active = false;
+        score += 1;
+      }
+    }
+  }
+
+  // 6. 충돌 체크 (플레이어 <-> 적)
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    if (enemies[i].active) {
+      if (abs((playerX + 10) - enemies[i].x) < 15 && abs((playerY + 5) - enemies[i].y) < 10) {
+        enemies[i].active = false;
+        lives--;
+        if (lives <= 0) gameOver = true;
+      }
+    }
+  }
+
+  // 7. 별 이동
+  for(int i=0; i<MAX_STARS; i++){
+    stars[i].x -= stars[i].speed;
+    if(stars[i].x < 0) {
+      stars[i].x = 240;
+      stars[i].y = random(0, 135);
+    }
+  }
+}
+
+void spawnBullet(float x, float y, float vx, float vy) {
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    if (!bullets[i].active) {
+      bullets[i].x = x;
+      bullets[i].y = y;
+      bullets[i].vx = vx;
+      bullets[i].vy = vy;
+      bullets[i].active = true;
+      break;
+    }
+  }
+}
+
+void drawGame() {
+  spr.fillSprite(TFT_BLACK); // 화면 지우기
+
+  // 1. 별 그리기 (배경)
+  for(int i=0; i<MAX_STARS; i++){
+    uint16_t color = (stars[i].speed > 1.0) ? TFT_WHITE : TFT_DARKGREY;
+    spr.drawPixel(stars[i].x, stars[i].y, color);
+  }
+
+  // 2. 총알 그리기
+  for (int i = 0; i < MAX_BULLETS; i++) {
+    if (bullets[i].active) {
+      spr.fillRect(bullets[i].x, bullets[i].y, 4, 2, TFT_YELLOW);
+    }
+  }
+
+  // 3. 적 비행기 그리기 (도형 조합으로 디자인)
+  for (int i = 0; i < MAX_ENEMIES; i++) {
+    if (enemies[i].active) {
+      int ex = enemies[i].x;
+      int ey = enemies[i].y;
+      spr.fillTriangle(ex + 10, ey, ex - 5, ey - 6, ex, ey, TFT_ORANGE);
+      spr.fillTriangle(ex + 10, ey + 6, ex - 5, ey + 12, ex, ey + 6, TFT_ORANGE);
+      spr.fillRect(ex - 5, ey, 15, 6, TFT_RED);
+    }
+  }
+
+  // 4. 플레이어 비행기 그리기 (전투기 형태)
+  // 꼬리 날개
+  spr.fillTriangle(playerX, playerY + 3, playerX - 6, playerY - 3, playerX + 4, playerY + 3, TFT_RED);
+  // 본체
+  spr.fillRect(playerX, playerY, 18, 6, TFT_WHITE);
+  // 주 날개
+  spr.fillTriangle(playerX + 4, playerY, playerX + 8, playerY - 8, playerX + 14, playerY, TFT_CYAN);
+  spr.fillTriangle(playerX + 4, playerY + 6, playerX + 8, playerY + 14, playerX + 14, playerY + 6, TFT_CYAN);
+
+  // 5. UI (점수 및 생명)
+  spr.setTextColor(TFT_WHITE);
+  spr.setTextSize(1);
+  spr.setCursor(5, 5);
+  spr.print("SCORE: "); spr.print(score);
+  
+  spr.setCursor(200, 5);
+  spr.print("HP: ");
+  for(int i=0; i<lives; i++) spr.print("*"); // 하트 대신 *로 표현
+
+  // 버퍼를 화면에 출력
+  spr.pushSprite(0, 0);
+}
+
+void drawGameOver() {
+  spr.fillSprite(TFT_BLACK);
+  spr.setTextColor(TFT_RED);
+  spr.setTextSize(2);
+  spr.setCursor(60, 40);
+  spr.print("GAME OVER");
+  
+  spr.setTextColor(TFT_WHITE);
+  spr.setTextSize(1);
+  spr.setCursor(90, 70);
+  spr.print("SCORE: "); spr.print(score);
+  
+  spr.setCursor(45, 100);
+  spr.print("Press Any Button to Retry");
+  
+  spr.pushSprite(0, 0);
+}
+
+void resetGame() {
+  playerY = 60;
+  score = 0;
+  lives = 3;
+  gameOver = false;
+  
+  for (int i = 0; i < MAX_BULLETS; i++) bullets[i].active = false;
+  for (int i = 0; i < MAX_ENEMIES; i++) enemies[i].active = false;
+}
