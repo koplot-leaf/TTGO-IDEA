@@ -1,0 +1,125 @@
+#include <TFT_eSPI.h>
+#include <SPI.h>
+
+TFT_eSPI tft = TFT_eSPI();
+TFT_eSprite spr = TFT_eSprite(&tft);
+
+// 핀 설정
+const int btnRotate = 0;
+const int btnMove = 35;
+
+// 미로 지도 (1 = 벽, 0 = 통로)
+#define MAP_SIZE 8
+int worldMap[MAP_SIZE][MAP_SIZE] = {
+  {1,1,1,1,1,1,1,1},
+  {1,0,0,0,0,0,0,1},
+  {1,0,1,1,0,1,0,1},
+  {1,0,1,0,0,0,0,1},
+  {1,0,1,0,1,1,0,1},
+  {1,0,0,0,1,0,0,1},
+  {1,0,1,0,0,0,0,1},
+  {1,1,1,1,1,1,1,1}
+};
+
+// 플레이어 상태
+float posX = 1.5, posY = 1.5;  // 위치
+float dirX = -1.0, dirY = 0.0; // 방향 벡터
+float planeX = 0.0, planeY = 0.66; // 시야 평면 (FOV)
+
+void setup() {
+  tft.init();
+  tft.setRotation(1); // 가로 모드 (240x135)
+  spr.createSprite(240, 135);
+  
+  pinMode(btnRotate, INPUT_PULLUP);
+  pinMode(btnMove, INPUT_PULLUP);
+}
+
+void loop() {
+  render3D();
+  handleInput();
+}
+
+void handleInput() {
+  // 버튼 0: 회전 (일정 각도씩 계속 회전)
+  if (digitalRead(btnRotate) == LOW) {
+    float rotSpeed = 0.1;
+    float oldDirX = dirX;
+    dirX = dirX * cos(rotSpeed) - dirY * sin(rotSpeed);
+    dirY = oldDirX * sin(rotSpeed) + dirY * cos(rotSpeed);
+    float oldPlaneX = planeX;
+    planeX = planeX * cos(rotSpeed) - planeY * sin(rotSpeed);
+    planeY = oldPlaneX * sin(rotSpeed) + planeY * cos(rotSpeed);
+  }
+
+  // 버튼 35: 전진
+  if (digitalRead(btnMove) == LOW) {
+    float moveSpeed = 0.1;
+    if (worldMap[(int)(posX + dirX * moveSpeed)][(int)posY] == 0) posX += dirX * moveSpeed;
+    if (worldMap[(int)posX][(int)(posY + dirY * moveSpeed)] == 0) posY += dirY * moveSpeed;
+  }
+}
+
+void render3D() {
+  // 배경 (천장과 바닥)
+  spr.fillRect(0, 0, 240, 67, 0x2104);    // 어두운 회색 천장
+  spr.fillRect(0, 67, 240, 135, 0x4208);  // 밝은 회색 바닥
+
+  // 레이캐스팅 루프 (화면의 가로 픽셀마다 광선을 쏨)
+  for (int x = 0; x < 240; x++) {
+    float cameraX = 2 * x / (float)240 - 1;
+    float rayDirX = dirX + planeX * cameraX;
+    float rayDirY = dirY + planeY * cameraX;
+
+    int mapX = (int)posX;
+    int mapY = (int)posY;
+
+    float sideDistX, sideDistY;
+    float deltaDistX = abs(1 / rayDirX);
+    float deltaDistY = abs(1 / rayDirY);
+    float perpWallDist;
+
+    int stepX, stepY;
+    int hit = 0;
+    int side;
+
+    if (rayDirX < 0) { stepX = -1; sideDistX = (posX - mapX) * deltaDistX; }
+    else { stepX = 1; sideDistX = (mapX + 1.0 - posX) * deltaDistX; }
+    if (rayDirY < 0) { stepY = -1; sideDistY = (posY - mapY) * deltaDistY; }
+    else { stepY = 1; sideDistY = (mapY + 1.0 - posY) * deltaDistY; }
+
+    // DDA 알고리즘 (벽에 부딪힐 때까지 추적)
+    while (hit == 0) {
+      if (sideDistX < sideDistY) { sideDistX += deltaDistX; mapX += stepX; side = 0; }
+      else { sideDistY += deltaDistY; mapY += stepY; side = 1; }
+      if (worldMap[mapX][mapY] > 0) hit = 1;
+    }
+
+    if (side == 0) perpWallDist = (mapX - posX + (1 - stepX) / 2) / rayDirX;
+    else           perpWallDist = (mapY - posY + (1 - stepY) / 2) / rayDirY;
+
+    // 벽 높이 계산
+    int lineHeight = (int)(135 / perpWallDist);
+    int drawStart = -lineHeight / 2 + 135 / 2;
+    if (drawStart < 0) drawStart = 0;
+    int drawEnd = lineHeight / 2 + 135 / 2;
+    if (drawEnd >= 135) drawEnd = 134;
+
+    // 거리별 색상 (셰이딩)
+    uint16_t color = (side == 1) ? 0x07E0 : 0x05C0; // 기본 초록색 (옆면은 약간 어둡게)
+    if (perpWallDist > 4) color = 0x0200; // 아주 멀면 어둡게
+
+    spr.drawFastVLine(x, drawStart, drawEnd - drawStart, color);
+  }
+
+  // 미니맵 그리기
+  for (int i = 0; i < MAP_SIZE; i++) {
+    for (int j = 0; j < MAP_SIZE; j++) {
+      uint16_t c = (worldMap[i][j] == 1) ? TFT_WHITE : TFT_BLACK;
+      spr.fillRect(180 + i*6, 5 + j*6, 5, 5, c);
+    }
+  }
+  spr.fillCircle(180 + posX*6, 5 + posY*6, 2, TFT_RED); // 플레이어 위치
+
+  spr.pushSprite(0, 0);
+}
