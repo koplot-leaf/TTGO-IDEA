@@ -1,0 +1,66 @@
+#include <TFT_eSPI.h>
+
+TFT_eSPI tft = TFT_eSPI();
+
+void setup() {
+  Serial.begin(115200);
+  tft.init();
+  tft.setRotation(1);
+  tft.fillScreen(TFT_BLACK);
+  
+  tft.setTextColor(TFT_WHITE);
+  tft.setCursor(0, 0);
+  tft.println("Digital Pet System Ready...");
+}
+
+// 캐릭터 얼굴을 그리는 함수
+void drawFace(String emotion, int value) {
+  tft.fillScreen(TFT_BLACK);
+  
+  if (emotion == "SLEEP") {
+    // CPU 낮음: 자고 있는 표정 (파란색)
+    tft.setTextColor(TFT_BLUE);
+    tft.setTextSize(3);
+    tft.setCursor(50, 50);
+    tft.println("(-_-) zZ");
+    tft.setTextSize(2);
+    tft.setCursor(50, 90);
+    tft.print("CPU: "); tft.print(value); tft.print("%");
+  } 
+  else if (emotion == "NORMAL") {
+    // CPU 중간: 평온한 표정 (녹색)
+    tft.setTextColor(TFT_GREEN);
+    tft.setTextSize(3);
+    tft.setCursor(50, 50);
+    tft.println("( ^_^) ");
+    tft.setTextSize(2);
+    tft.setCursor(50, 90);
+    tft.print("CPU: "); tft.print(value); tft.print("%");
+  } 
+  else if (emotion == "ANGRY") {
+    // CPU 높음: 화난 표정 (빨간색)
+    tft.setTextColor(TFT_RED);
+    tft.setTextSize(3);
+    tft.setCursor(50, 50);
+    tft.println("(O_O#) !!");
+    tft.setTextSize(2);
+    tft.setCursor(50, 90);
+    tft.print("CPU: "); tft.print(value); tft.print("%");
+  }
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    String data = Serial.readStringUntil('\n');
+    int cpuValue = data.toInt(); // 파이썬에서 보낸 CPU 수치
+
+    // 데이터 수치에 따른 상태 결정 (Decision Logic)
+    if (cpuValue < 20) {
+      drawFace("SLEEP", cpuValue);
+    } else if (cpuValue < 70) {
+      drawFace("NORMAL", cpuValue);
+    } else {
+      drawFace("ANGRY", cpuValue);
+    }
+  }
+}
